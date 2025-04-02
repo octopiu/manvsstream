@@ -1,15 +1,17 @@
+mvslib = require("mvslib")
+socket = require("socket.core")
 
 IrcChat = {}
 TWITCH_IRC_HOST = "irc.chat.twitch.tv"
 TWITCH_IRC_PORT = 6667
 
 function IrcChat:new(o)
-  o = o or {}   -- create object if user does not provide one
-  setmetatable(o, self)
-  self.__index = self
-  self.socket = nil
-  emu.print("ok?")
-  return o
+    o = o or {}   -- create object if user does not provide one
+    setmetatable(o, self)
+    self.__index = self
+    self.socket = nil
+    self.buffer = ""
+    return o
 end
 
 function IrcChat:ReceiveAll()
@@ -17,30 +19,53 @@ function IrcChat:ReceiveAll()
         return
     end
     while true do
-        local s, status = self.socket:receive(1024)
-        emu.print(s)
-        if string.len(s) == 0 then
+        local recv, send, err = socket.select({self.socket}, {}, 0.001)
+        if err ~= nil then
             break
         end
+        local s, status = self.socket:receive()
+        if s == nil then
+            break
+        end
+        self.buffer = self.buffer..s
     end
 end
 
 function IrcChat:Connect(channel)
-    socket = require("socket")
     self.channel = channel
-    self.socket = socket.connect(TWITCH_IRC_HOST, TWITCH_IRC_PORT)
-    emu.print("ok?")
-    -- self.socket:settimeout(100)
+    self.socket = socket.tcp()
+    self.socket:connect(TWITCH_IRC_HOST, TWITCH_IRC_PORT)
     self.socket:send("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands\r\n")
-    -- self:ReceiveAll()
+    self:ReceiveAll()
     self.socket:send("NICK justinfan666\r\n")
-    -- self:ReceiveAll()
+    self:ReceiveAll()
     self.socket:send(string.format("JOIN #%s\r\n", channel))
-    -- self:ReceiveAll()
+    self:ReceiveAll()
 end
 
-chat = IrcChat:new()
-chat:Connect("piuk")
--- while true do
---     chat:ReceiveAll()
--- end
+function IrcChat:PopMessage(channel)
+    idx = self.buffer:find("\r\n")
+    if idx == nil then
+        return nil
+    end
+    message = mvslib.parse_irc_message(self.buffer:sub(1, idx-1))
+    self.buffer = self.buffer:sub(idx+2, self.buffer:len())
+    return message
+end
+
+irc_thread = coroutine.create(function()
+    chat = IrcChat:new()
+    chat:Connect("piuk")
+    while true do
+        chat:ReceiveAll()
+        coroutine.yield(chat:PopMessage())
+    end
+end)
+
+while true do
+    local status, message = coroutine.resume(irc_thread)
+    if message ~= "" and message ~= nil then
+        emu.print(message)
+    end
+    emu.frameadvance()
+end
