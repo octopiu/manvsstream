@@ -1,9 +1,10 @@
-mvslib = require("mvslib")
+﻿mvslib = require("mvslib")
 socket = require("socket.core")
 
 IrcChat = {}
 TWITCH_IRC_HOST = "irc.chat.twitch.tv"
 TWITCH_IRC_PORT = 6667
+CHANNEL = "piuk"
 
 function IrcChat:new(o)
     o = o or {}   -- create object if user does not provide one
@@ -55,7 +56,7 @@ end
 
 irc_thread = coroutine.create(function()
     chat = IrcChat:new()
-    chat:Connect("piuk")
+    chat:Connect(CHANNEL)
     while true do
         chat:ReceiveAll()
         coroutine.yield(chat:PopMessage())
@@ -67,5 +68,4 @@ while true do
     if message ~= "" and message ~= nil then
         emu.print(message)
     end
-    emu.frameadvance()
 end
