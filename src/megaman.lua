@@ -136,6 +136,9 @@ function mvs:step()
     if self.flags["life_bounce"] then
         self.life_bouncer:step()
     end
+end
+
+function mvs:draw()
     if self.flags["ducks"] then
         self.cursor:draw()
     end
