@@ -1,3 +1,5 @@
+mvslib = require("mvslib")
+
 SCREEN_WIDTH = 256
 SCREEN_HEIGHT = 240
 DIR_RIGHT = 1
@@ -13,9 +15,9 @@ rockman = {
     INPUTS=0x0014,
     INPUTS_TAPPED=0x0018,
     BULLET_ON_SCREEN=0x0060,
-    HEALTH=0x006A
-    MEGAMAN_X=0x0480
-    MEGAMAN_Y=0x0600
+    HEALTH=0x006A,
+    MEGAMAN_X=0x0480,
+    MEGAMAN_Y=0x0600,
     MEGAMAN_FACING=0x0097
 }
 
@@ -28,7 +30,7 @@ rockman2 = {
     MEGAMAN_Y=0x04A0
 }
 
-
+bullet = {}
 function bullet:new(o)
     o = o or {}
     setmetatable(o, self)
@@ -42,6 +44,10 @@ function bullet:new(o)
 end
 
 function bullet:shoot(x, y, dir)
+    if self.shown then
+        return
+    end
+    self.shown = true
     self.x, self.y = x, y
     self.speed = self.base_speed * dir
 end
@@ -57,6 +63,7 @@ function bullet:draw()
     end
 end
 
+bouncer = {}
 function bouncer:new(o)
     o = o or {}
     setmetatable(o, self)
@@ -82,6 +89,7 @@ function bouncer:step()
 end
 
 
+cursor = {}
 function cursor:new(o)
     o = o or {}
     setmetatable(o, self)
@@ -101,6 +109,7 @@ function cursor:draw()
 end
 
 
+mvs = {}
 function mvs:new(o)
     o = o or {}
     setmetatable(o, self)
@@ -110,16 +119,19 @@ function mvs:new(o)
         mirrored=false,
         abrevert=false,
         skewed=false,
-        decoys=false
-        life_bounce=false
-        ducks=false
+        decoys=false,
+        life_bounce=false,
+        ducks=false,
+        life_mash=false
     }
     self.bullets = {}
     self.life_bouncer = bouncer:new()
     self.vars = rockman
     self.cursor = cursor:new()
+    self.mash_pressed = false
+    self.health = 0
     for i=1,MAX_BULLETS do
-        self.bullets.insert(i, bullet:new())
+        table.insert(self.bullets, bullet:new())
     end
     return o
 end
@@ -129,18 +141,46 @@ function mvs:on_ppumask_write(address, size, value)
     if self.flags["gameboy"] then
         memory.writebyte(address, OR(value, 0x41))
     end
-    memory.registerwrite(address, self:on_ppumask_write)
+    memory.registerwrite(address, function(address, size, value)
+        self:on_ppumask_write(address, size, value)
+    end)
 end
 
 function mvs:step()
     if self.flags["life_bounce"] then
         self.life_bouncer:step()
     end
+    inputs = joypad.read(1)
+    if self.flags['life_mash'] then
+        health = memory.readbyte(self.vars['HEALTH'])
+        if inputs['A'] then
+            if not self.mash_pressed then
+                self.health = self.health + 3
+                self.mash_pressed = true
+            end
+        else
+            self.mash_pressed = false
+        end
+        if health >= 1 then
+            self.health = self.health - 0.4
+        end
+        memory.writebyte(self.vars['HEALTH'], self.health)
+    end
 end
 
 function mvs:draw()
     if self.flags["ducks"] then
         self.cursor:draw()
+    end
+    if self.flags['decoys'] then
+        for i=1,10 do
+            self.bullets[i]:draw()
+        end
+    end
+    if self.flags['mirrored'] then
+        shot = gui.gdscreenshot(false)
+        mirrored_shot = mvslib.mirror_image(shot)
+        gui.drawimage(mirrored_shot)
     end
 end
 
@@ -165,7 +205,7 @@ function mvs:on_tap(address, size, value)
     
         memory.writebyte(address, taps)
     end
-    memory.registerread(address, 1, mvs:on_tap)
+    memory.registerread(address, 1, function(address, size, value) mvs:on_tap(address, size, value) end)
 end
 
 function mvs:on_input(address, size, value)
@@ -201,7 +241,7 @@ function mvs:on_input(address, size, value)
         memory.writebyte(address, inputs)
     end
 
-    memory.registerread(address, 1, mvs:on_input)
+    memory.registerread(address, 1, function(address, size, value) mvs:on_input(address, size, value) end)
 end
 
 function mvs:set_flag(flag, onoff)
@@ -212,20 +252,20 @@ function mvs:set_flag(flag, onoff)
         end
     elseif flag == "gameboy" then
         if onoff then
-            memory.registerwrite(PPUMASK, 1, self:on_ppumask_write)
+            memory.registerwrite(PPUMASK, 1, function(address, size, value) self:on_ppumask_write(address, size, value) end)
         else
             memory.registerwrite(PPUMASK, 1, nil)
         end
-    elseif flag == "decoys"
+    elseif flag == "decoys" then
         if onoff then
-            memory.registerwrite(self.vars['BULLET_ON_SCREEN'], 1, self:on_shoot)
+            memory.registerwrite(self.vars['BULLET_ON_SCREEN'], 1, function(address, size, value) self:on_shoot(address, size, value) end)
         else
             memory.registerwrite(self.vars['BULLET_ON_SCREEN'], 1, nil)
         end
     elseif flag == "abrevert" or flag == "mirrored" then
         if onoff then
-            memory.registerwrite(self.vars['INPUTS'], 1, self:on_input)
-            memory.registerwrite(self.vars['INPUTS_TAPPED'], 1, self:on_tap)
+            memory.registerread(self.vars['INPUTS'], 1, function(address, size, value) self:on_input(address, size, value) end)
+            memory.registerread(self.vars['INPUTS_TAPPED'], 1, function(address, size, value) self:on_tap(address, size, value) end)
         end
     end
 end
@@ -234,14 +274,18 @@ function mvs:on_shoot(address, size, value)
     if value == 0 then
         return
     end
+    memory.registerwrite(address, size, nil)
     x, y = memory.readbyte(self.vars['MEGAMAN_X']), memory.readbyte(self.vars['MEGAMAN_Y'])
-    if memory.readbyte(MEGAMAN_FACING) == 0 then
+    if memory.readbyte(self.vars['MEGAMAN_FACING']) == 0 then
         dir = -1
     else
         dir = 1
     end
     x = x + dir * MEGAMAN_WIDTH
     for i=1,MAX_BULLETS do
-        self.bullets[i]:shoot(x, y, dir)
+        self.bullets[i]:shoot(x, y+2*i, dir)
     end
+    memory.registerwrite(address, size, function(address, size, value) self:on_shoot(address, size, value) end)
 end
+
+return mvs
