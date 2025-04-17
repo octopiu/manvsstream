@@ -56,7 +56,7 @@ function bullet:draw()
     if not self.shown then
         return
     end
-    gui.box(self.x - self.w, self.y - self.h, self.x + self.w, self.y + self.h)
+    gui.box(self.x - self.w, self.y - self.h, self.x + self.w, self.y + self.h, 'black', 'black')
     self.x = self.x + self.speed
     if self.x > SCREEN_WIDTH+4 or self.x < -4 then
         self.shown = false
@@ -125,6 +125,8 @@ function mvs:new(o)
         life_mash=false
     }
     self.bullets = {}
+    self.current_bullet = 1
+    self.bullet_dt = os.clock()
     self.life_bouncer = bouncer:new()
     self.vars = rockman
     self.cursor = cursor:new()
@@ -166,6 +168,14 @@ function mvs:step()
         end
         memory.writebyte(self.vars['HEALTH'], self.health)
     end
+    if self.flags['decoys'] then
+        now = os.clock()
+        emu.message(now)
+        if now - self.bullet_dt >= 0.05 then
+            self:shoot()
+            self.bullet_dt = now
+        end
+    end
 end
 
 function mvs:draw()
@@ -173,7 +183,7 @@ function mvs:draw()
         self.cursor:draw()
     end
     if self.flags['decoys'] then
-        for i=1,10 do
+        for i=1,MAX_BULLETS do
             self.bullets[i]:draw()
         end
     end
@@ -256,18 +266,32 @@ function mvs:set_flag(flag, onoff)
         else
             memory.registerwrite(PPUMASK, 1, nil)
         end
-    elseif flag == "decoys" then
-        if onoff then
-            memory.registerwrite(self.vars['BULLET_ON_SCREEN'], 1, function(address, size, value) self:on_shoot(address, size, value) end)
-        else
-            memory.registerwrite(self.vars['BULLET_ON_SCREEN'], 1, nil)
-        end
+    -- elseif flag == "decoys" then
+        -- if onoff then
+        --     memory.registerwrite(self.vars['BULLET_ON_SCREEN'], 1, function(address, size, value) self:on_shoot(address, size, value) end)
+        -- else
+        --     memory.registerwrite(self.vars['BULLET_ON_SCREEN'], 1, nil)
+        -- end
     elseif flag == "abrevert" or flag == "mirrored" then
         if onoff then
             memory.registerread(self.vars['INPUTS'], 1, function(address, size, value) self:on_input(address, size, value) end)
             memory.registerread(self.vars['INPUTS_TAPPED'], 1, function(address, size, value) self:on_tap(address, size, value) end)
         end
+    elseif flag == 'ducks' then
+        self.cursor.shown = true
     end
+end
+
+function mvs:shoot()
+    x, y = memory.readbyte(self.vars['MEGAMAN_X']), memory.readbyte(self.vars['MEGAMAN_Y'])
+    if memory.readbyte(self.vars['MEGAMAN_FACING']) == 0 then
+        dir = -1
+    else
+        dir = 1
+    end
+    x = x + dir * MEGAMAN_WIDTH
+    self.current_bullet = (self.current_bullet + 1) % MAX_BULLETS + 1
+    self.bullets[self.current_bullet]:shoot(x, y, dir)
 end
 
 function mvs:on_shoot(address, size, value)

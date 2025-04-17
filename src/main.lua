@@ -11,9 +11,10 @@ end
 
 manvsstream = mvs:new()
 -- manvsstream:set_flag('gameboy', true)
--- manvsstream:set_flag('decoys', true)
+manvsstream:set_flag('decoys', true)
 -- manvsstream:set_flag('mirrored', true)
-manvsstream:set_flag('life_mash', true)
+-- manvsstream:set_flag('life_mash', true)
+manvsstream:set_flag('ducks', true)
 
 r = roulette:new({'gameboy', 'decoys', 'life_mash', 'life_bounce'})
 r:on_chosen(function(choice)
