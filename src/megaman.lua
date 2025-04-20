@@ -5,6 +5,7 @@ SCREEN_HEIGHT = 240
 DIR_RIGHT = 1
 DIR_LEFT = -1
 MAX_BULLETS = 16
+MAX_DUCKS = 16
 MAX_LIFE = 28
 LIFE_BOUNCE = 1.5
 MEGAMAN_WIDTH = 16
@@ -59,6 +60,63 @@ function bullet:draw()
     gui.box(self.x - self.w, self.y - self.h, self.x + self.w, self.y + self.h, 'black', 'black')
     self.x = self.x + self.speed
     if self.x > SCREEN_WIDTH+4 or self.x < -4 then
+        self.shown = false
+    end
+end
+
+duck = {}
+function duck:new(o)
+    o = o or {}
+    setmetatable(o, self)
+    self.base_speed = 1
+    self.speed_x, self.speed_y = 0, 0
+    self.x, self.y = 0, 0
+    self.w, self.h = 2, 2
+    self.target_x, self.target = 0, 0
+    self.shown = false
+    self.__index = self
+    return o
+end
+
+function duck:reset()
+    if self.shown then
+        return
+    end
+    self.shown = true
+    side = math.random(4)
+    if side == 1 then
+        self.x = 0
+        self.y = math.random(SCREEN_HEIGHT)
+    elseif side == 2 then
+        self.x = SCREEN_WIDTH
+        self.y = math.random(SCREEN_HEIGHT)
+    elseif side == 3 then
+        self.x = math.random(SCREEN_WIDTH)
+        self.y = 0
+    else
+        self.x = math.random(SCREEN_WIDTH)
+        self.y = SCREEN_HEIGHT
+    end
+end
+
+function duck:set_target(x, y)
+    if self.target_x == x and self.target_y == y then
+        return
+    end
+    self.target_x, self.target_y = x, y
+    speed_x, speed_y = x - self.x, y - self.y
+    speed_len = math.sqrt(speed_x * speed_x + speed_y * speed_y)
+    self.speed_x, self.speed_y = speed_x / speed_len, speed_y / speed_len
+end
+
+function duck:draw()
+    if not self.shown then
+        return
+    end
+    self.x = self.x + self.speed_x
+    self.y = self.y + self.speed_y
+    gui.box(self.x - self.w, self.y - self.h, self.x + self.w, self.y + self.h, 'black', 'black')
+    if math.abs(self.x - self.target_x) <= 2 and math.abs(self.y - self.target_y) <= 2 then
         self.shown = false
     end
 end
@@ -132,8 +190,12 @@ function mvs:new(o)
     self.cursor = cursor:new()
     self.mash_pressed = false
     self.health = 0
+    self.ducks = {}
     for i=1,MAX_BULLETS do
         table.insert(self.bullets, bullet:new())
+    end
+    for i=1,MAX_DUCKS do
+        table.insert(self.ducks, duck:new())
     end
     return o
 end
@@ -170,17 +232,23 @@ function mvs:step()
     end
     if self.flags['decoys'] then
         now = os.clock()
-        emu.message(now)
         if now - self.bullet_dt >= 0.05 then
             self:shoot()
             self.bullet_dt = now
         end
+    end
+    if self.flags['ducks'] then
+        self:set_ducks_target()
+        self:shoot_ducks()
     end
 end
 
 function mvs:draw()
     if self.flags["ducks"] then
         self.cursor:draw()
+        for i=1,MAX_DUCKS do
+            self.ducks[i]:draw()
+        end
     end
     if self.flags['decoys'] then
         for i=1,MAX_BULLETS do
@@ -279,6 +347,26 @@ function mvs:set_flag(flag, onoff)
         end
     elseif flag == 'ducks' then
         self.cursor.shown = true
+    end
+end
+
+function mvs:shoot_ducks()
+    inputs = input.get()
+    if inputs['click'] ~= 1 then
+        return
+    end
+    for i=1,MAX_DUCKS do
+        if math.abs(inputs.xmouse - self.ducks[i].x) < 8 and math.abs(inputs.ymouse - self.ducks[i].y) < 8 then
+            self.ducks[i].shown = false
+        end
+    end
+end
+
+function mvs:set_ducks_target()
+    x, y = memory.readbyte(self.vars['MEGAMAN_X']), memory.readbyte(self.vars['MEGAMAN_Y'])
+    for i=1,MAX_DUCKS do
+        self.ducks[i]:reset()
+        self.ducks[i]:set_target(x, y)
     end
 end
 
